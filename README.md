@@ -4,6 +4,8 @@ etcd-cpp-apiv3
 The _etcd-cpp-apiv3_ is a C++ API for [etcd](https://etcd.io/)'s v3 client API,
 i.e., `ETCDCTL_API=3`.
 
+[![Build and Test](https://github.com/etcd-cpp-apiv3/etcd-cpp-apiv3/workflows/Build%20and%20Test/badge.svg)](https://github.com/etcd-cpp-apiv3/etcd-cpp-apiv3/actions?workflow=Build+and+Test)
+
 ## Requirements
 
 1. boost

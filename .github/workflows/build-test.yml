@@ -15,7 +15,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-20.04]
+        os: [ubuntu-20.04, macos-10.15, macos-11.0]
+        etcd: [v3.2.26, v3.3.11, v3.4.13]
     steps:
       - uses: actions/checkout@v2
         with:
@@ -25,9 +26,9 @@ jobs:
         uses: actions/cache@v2
         with:
           path: /home/runner/.ccache
-          key: ${{ runner.os }}-ccache
+          key: ${{ runner.os }}-${{ matrix.os }}-${{ matrix.etcd }}-ccache
           restore-keys: |
-            ${{ runner.os }}-ccache
+            ${{ runner.os }}-${{ matrix.os }}-${{ matrix.etcd }}-ccache
 
       - name: Install dependencies for Linux
         if: runner.os == 'Linux'
@@ -43,19 +44,36 @@ jobs:
                               libprotobuf-dev \
                               libssl-dev \
                               libz-dev \
-                              lsb-release \
                               protobuf-compiler-grpc \
                               screenfetch \
                               wget
 
-          # install etcd
-          wget https://github.com/etcd-io/etcd/releases/download/v3.4.13/etcd-v3.4.13-linux-amd64.tar.gz
-          tar zxvf etcd-v3.4.13-linux-amd64.tar.gz
-          sudo mv etcd-v3.4.13-linux-amd64/etcd /usr/local/bin/
-          sudo mv etcd-v3.4.13-linux-amd64/etcdctl /usr/local/bin/
+      - name: Install dependencies for Mac
+        if: runner.os == 'macOS'
+        run: |
+          brew install ccache cmake boost curl grpc protobuf openssl zlib unzip wget screenfetch
 
-          lsb_release -a
+      - name: Screen fetch
+        run: |
           screenfetch
+
+      - name: Install etcd for Linux
+        if: runner.os == 'Linux'
+        run: |
+          # install etcd
+          wget https://github.com/etcd-io/etcd/releases/download/${{ matrix.etcd }}/etcd-${{ matrix.etcd }}-linux-amd64.tar.gz
+          tar zxvf etcd-${{ matrix.etcd }}-linux-amd64.tar.gz
+          sudo mv etcd-${{ matrix.etcd }}-linux-amd64/etcd /usr/local/bin/
+          sudo mv etcd-${{ matrix.etcd }}-linux-amd64/etcdctl /usr/local/bin/
+
+      - name: Install etcd for Mac
+        if: runner.os == 'macOS'
+        run: |
+          # install etcd
+          wget https://github.com/etcd-io/etcd/releases/download/${{ matrix.etcd }}/etcd-${{ matrix.etcd }}-darwin-amd64.zip
+          unzip etcd-${{ matrix.etcd }}-darwin-amd64.zip
+          sudo mv etcd-${{ matrix.etcd }}-darwin-amd64/etcd /usr/local/bin/
+          sudo mv etcd-${{ matrix.etcd }}-darwin-amd64/etcdctl /usr/local/bin/
 
       - name: Install cpprestsdk
         run: |
@@ -64,7 +82,8 @@ jobs:
           git clone https://github.com/microsoft/cpprestsdk.git
           mkdir -p cpprestsdk/build
           cd cpprestsdk/build
-          cmake .. -DBUILD_TESTS=OFF \
+          cmake .. -DCMAKE_BUILD_TYPE=Debug \
+                   -DBUILD_TESTS=OFF \
                    -DBUILD_SAMPLES=OFF \
                    -DCPPREST_EXCLUDE_WEBSOCKETS=ON \
                    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
@@ -76,11 +95,16 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          cmake .. -DBUILD_ETCD_TESTS=ON \
+          cmake .. -DCMAKE_BUILD_TYPE=Debug \
+                   -DBUILD_ETCD_TESTS=ON \
                    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
                    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           make -j2
           sudo make install
+
+      - name: Setup tmate session
+        if: true
+        uses: mxschmitt/action-tmate@v2
 
       - name: Test
         run: |
@@ -94,12 +118,29 @@ jobs:
           ./bin/WatcherTest
 
           # tests with auth
-          /usr/local/bin/etcdctl user add root --new-user-password="root" || true
+          # for etcd v3.2, v3.3
+          if [[ "${{ matrix.etcd }}" == v3.2* ]] || [[ "${{ matrix.etcd }}" == v3.3* ]];
+          then
+              echo "root" | /usr/local/bin/etcdctl user add root || true
+          fi
+          # for etcd v3.4
+          if [[ "${{ matrix.etcd }}" == v3.4* ]]
+          then
+              /usr/local/bin/etcdctl user add root --new-user-password="root" || true
+          fi
+
           /usr/local/bin/etcdctl auth enable || true
 
           ./bin/AuthTest
 
-          /usr/local/bin/etcdctl auth disable --user="root" --password="root" || true
+          # for etcd v3.2
+          if [[ "${{ matrix.etcd }}" == v3.2* ]] || [[ "${{ matrix.etcd }}" == v3.3* ]];
+              /usr/local/bin/etcdctl -u "root:root" auth disable || true
+          fi
+          # for etcd v3.4
+          if [[ "${{ matrix.etcd }}" == v3.4* ]]
+              /usr/local/bin/etcdctl auth disable --user="root" --password="root" || true
+          fi
 
       - name: Check ccache
         run: |
